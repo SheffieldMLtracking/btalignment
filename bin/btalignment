@@ -1,0 +1,192 @@
+#!/usr/bin/env python
+
+import numpy as np
+from glob import glob
+import argparse
+import alignment.helper
+import alignment
+import numpy as np
+from glob import glob
+import regex as re
+
+import os
+import json
+import pickle
+from btretrodetect import Retrodetect
+import json
+
+parser = argparse.ArgumentParser(description='Runs the alignment algorithm for the bee-track project. This can either run a cross validation check, or can generate an alignment configuration.')
+parser.add_argument('imgpath',type=str,help='Path to images (this needs to be to the session folder, e.g. 2024-06-20/CalibTest200624')
+parser.add_argument('--calset',required=False,type=str,help='Name of the calibration set (default = \'cal\')',default='cal')
+parser.add_argument('--xval',help='Setting this means the algorithm will just do a cross-validation check (and won\'t write to the config file.',action="store_true")
+parser.add_argument('--after',required=False,type=str,help='Only process images that were created after this time HH:MM:SS',default="00:00:00")
+parser.add_argument('--before',required=False,type=str,help='Only process images that were created before this time HH:MM:SS',default="23:59:59")
+parser.add_argument('--maxnum',required=False,type=int,help='Maximum number of photos to include per camera (default = 6)', default=6)
+parser.add_argument('--keepnoflashpair',required=False, default=False, help="Tool ignores second photo in flash/no-flash pair. This option makes the tool use both.",action="store_true")
+parser.add_argument('--keepcolour',required=False, default=False, help="Tool tries to identify the cameras as colour/greyscale and only keeps greyscale. Setting this uses all the cameras",action="store_true")
+parser.add_argument('--xvalfoldspercamera',required=False,type=int,help='Number of cross-validation folds. Default: set to leave out one item from each camera in turn.', default=1)
+parser.add_argument('--xvalheldoutcount',required=False,type=int,help='How many items to hold out each time (default = 1)', default=1)
+parser.add_argument('--refreshcache',help='Whether to refresh the decoding cache',action="store_true",default=False)
+parser.add_argument('--threshold',help='Threshold of score before adding to data',type=str,default=0)
+parser.add_argument('--sourcename',help='The name to give this source of labels (default:btretrodetect)',type=str,default='btretrodetect')
+#TODO: Might want to either; (a) overwrite, (b) skip, (c) append...
+#parser.add_argument('--',help='Stops it overwriting previous labels from this source (default behaviour is to do overwrite)',action="store_true") 
+args = parser.parse_args()
+
+
+def guesscamtypegetscore(fn):
+    """
+    Used to guess if camera is greyscale or colour. If the return value is less than about 0.02 it's probably greyscale.
+    fn = filename.
+    """
+    photo = pickle.load(open(fn,'rb'))
+    img = photo['img']
+    if img is None: return np.NaN
+    #e.g. 0.0001 = greyscale, 0.7 = colour
+    score = np.abs(np.mean(img[0:-2:2,0:-2:2]/2+img[2::2,2::2]/2-img[1:-2:2,1:-2:2])/np.mean(img))
+    return score
+    
+def guesscamtype(path,camid):
+    """
+    Pass the 
+    Guesses camera type (returns a string either 'greyscale' or 'colour').
+    Hopefully temporary.
+   """
+    score = np.nanmean([guesscamtypegetscore(fn) for fn in getimgfilelist(path,camid)[:50:5]])
+    if score<0.02:
+        return 'greyscale'
+    else:
+        return 'colour'
+
+def totalsecs(st):
+    time_hms = [int(s) for s in re.findall('([0-9]{1,2})[:\+]([0-9]{2})[:\+]([0-9]{2})',st)[0]]
+    return time_hms[0]*3600 + time_hms[1]*60 + time_hms[2]
+
+def get_image_method(fn):
+    data = np.load(fn,allow_pickle=True)
+    #if not data['record']['flash']: return None
+    return data['img'].astype(float)
+
+
+def make_markers_list(photo,cxs,cys,markerlabel):
+    markers = []
+    for cx, cy in zip(cxs, photo.camera.res[1]-np.array(cys)):
+        marker = {'x':int(cx),'y':int(cy),'label':'','source':'btalignment','meta':markerlabel,'version':'btalignment, v1.0', 'confidence':''}
+        markers.append(marker)
+    return markers
+    
+    
+    
+    
+    
+    
+
+paths = glob(args.imgpath+'/'+args.calset+'/*/*')
+
+allimgfiles = [sorted(glob(path+'/*.np')) for path in paths]
+
+if not args.keepcolour:
+    print("Removing colour cameras from set")
+    greyscale = [guesscamtypegetscore(imgfiles[0])<0.02 for imgfiles in allimgfiles]
+    paths = [p for p,g in zip(paths,greyscale) if g]
+    
+after = totalsecs(args.after)
+before = totalsecs(args.before)
+
+allimgfiles = []
+for path in paths:
+    #print("Searching %s" % path)
+    fns = sorted(glob(path+'/*.np'))
+    fnlist = []
+    lastphototime = 0    
+    for fn in fns:
+        phototime = totalsecs(fn)
+        if (not args.keepnoflashpair) and (phototime<lastphototime+0.1): #within 100ms of the last photo (this is probably a flash/noflash pair) 
+            continue
+        if before>=phototime>=after:
+            fnlist.append(fn)
+        lastphototime = phototime
+        if len(fnlist)>=args.maxnum: break
+    print('In %s found %d files, used %d of them.' % ('/'.join(path.split('/')[-3:]),len(fns),len(fnlist)))
+    allimgfiles.append(fnlist)
+
+print(" ")
+print("Loading images, and searching for Matrix Code Boards in each.\n")
+#compute the start times of intervals
+alltimes = []
+for imgfiles in allimgfiles:
+    for fn in imgfiles:
+        alltimes.append(totalsecs(fn))
+
+#get the interval start times
+intervalstarts = alignment.helper.getintervalstarts(alltimes,interval_length=1)
+
+allimages = []
+allintervals = []
+#loop through the cameras...
+for imgi,imgfiles in enumerate(allimgfiles):
+    images = []
+    intervals = []
+    #loop through our images...
+    for fn in imgfiles:
+        interval = alignment.helper.getinterval(totalsecs(fn),intervalstarts)
+        images.append(fn)
+        intervals.append(interval)
+    allimages.append(images)
+    allintervals.append(intervals)
+
+al = alignment.build_alignment_object(allimages,allintervals,get_image_method=get_image_method,timeout=500,usecache=not args.refreshcache)
+
+camids = []
+for imgfiles in allimgfiles:
+    pathsplit = imgfiles[0].split('/')
+    camids.append("%s-%s" % (pathsplit[-3],pathsplit[-2]))
+for cam,camid in zip(al.cameras,camids):
+    cam.id = camid
+
+###
+al.summary()
+###
+
+if args.xval:
+    print("\nRunning Cross-validation\n")
+    al.run_cross_validation(args.xvalfoldspercamera*len(al.cameras),args.xvalheldoutcount)
+    al.print_crossvalidation_summary()
+else:
+    print("Running Alignment\n")
+    al.reset_holdouts()
+    al.compute_orientation()
+    
+#Save markers json data for photos so we can see how we did...
+for photo in al.photos:
+    allmarkers = []
+    for obs in photo.observations:
+        if obs.realobs:
+            allmarkers.extend(make_markers_list(photo,obs.cornersx,obs.cornersy,'true'))
+        coords = photo.camera.get_pixel_loc(obs.calsquare.get_corner_coords())
+        allmarkers.extend(make_markers_list(photo,coords[:,0],coords[:,1],'placed'))
+
+        if hasattr(obs,'predicted_coords'):
+            allmarkers.extend(make_markers_list(photo,obs.predicted_coords[:,0],obs.predicted_coords[:,1],'xval'))
+
+    splitpath = photo.image_reference.split('/')
+    datapath = '/'.join(splitpath[:-1])+'/'+args.sourcename
+    datafilename = datapath + '/' + splitpath[-1][:-2]+'json'
+        
+    try:
+        os.mkdir(datapath)
+    except FileExistsError:
+        pass
+        
+    json.dump(allmarkers,open(datafilename,'w'))
+
+#Save alignment data...
+for cam in al.cameras:
+    datapath = '/'.join(cam.photos[0].image_reference.split('/')[:-1])+'/btalignment'
+    
+    camjson = {'loc':cam.loc.tolist(),'orientation':cam.orientation.tolist(),'hfov':cam.hfov,'vfov':cam.vfov,'res':cam.res}
+    try:
+        os.mkdir(datapath)
+    except FileExistsError:
+        pass
+    json.dump(camjson,open(datapath+'/alignment.json','w'))
