@@ -1,7 +1,13 @@
 # btalignment
 This computes the 3d pose of cameras and calibration boards.
 
-# Usage Examples
+## Installation
+```
+pip install git+https://github.com/SheffieldMLtracking/btalignment.git
+```
+
+
+## Usage Examples
 ```
 btalignment ~/beephotos/2024-06-20/CalibTest200624
 ```
@@ -52,7 +58,7 @@ Split 4/4.
 13-02G146  1.5
 ```
 
-# Usage
+## Usage
 ```
 usage: btalignment [-h] [--calset CALSET] [--xval] [--after AFTER] [--before BEFORE] [--maxnum MAXNUM] [--keepnoflashpair] [--keepcolour]
                    [--xvalfoldspercamera XVALFOLDSPERCAMERA] [--xvalheldoutcount XVALHELDOUTCOUNT] [--refreshcache] [--threshold THRESHOLD]
