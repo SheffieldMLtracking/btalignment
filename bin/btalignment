@@ -8,7 +8,7 @@ import alignment
 import numpy as np
 from glob import glob
 import regex as re
-
+import sys
 import os
 import json
 import pickle
@@ -34,33 +34,10 @@ parser.add_argument('--sourcename',help='The name to give this source of labels 
 args = parser.parse_args()
 
 
-def guesscamtypegetscore(fn):
-    """
-    Used to guess if camera is greyscale or colour. If the return value is less than about 0.02 it's probably greyscale.
-    fn = filename.
-    """
-    photo = pickle.load(open(fn,'rb'))
-    img = photo['img']
-    if img is None: return np.NaN
-    #e.g. 0.0001 = greyscale, 0.7 = colour
-    score = np.abs(np.mean(img[0:-2:2,0:-2:2]/2+img[2::2,2::2]/2-img[1:-2:2,1:-2:2])/np.mean(img))
-    return score
-    
-def guesscamtype(path,camid):
-    """
-    Pass the 
-    Guesses camera type (returns a string either 'greyscale' or 'colour').
-    Hopefully temporary.
-   """
-    score = np.nanmean([guesscamtypegetscore(fn) for fn in getimgfilelist(path,camid)[:50:5]])
-    if score<0.02:
-        return 'greyscale'
-    else:
-        return 'colour'
-
 def totalsecs(st):
     time_hms = [int(s) for s in re.findall('([0-9]{1,2})[:\+]([0-9]{2})[:\+]([0-9]{2})',st)[0]]
     return time_hms[0]*3600 + time_hms[1]*60 + time_hms[2]
+
 
 def get_image_method(fn):
     data = np.load(fn,allow_pickle=True)
@@ -82,12 +59,17 @@ def make_markers_list(photo,cxs,cys,markerlabel):
     
 
 paths = glob(args.imgpath+'/'+args.calset+'/*/*')
-
+print("Searching %s" % (args.imgpath+'/'+args.calset+'/*/*'))
+print("Using these folders:")
+print(paths)
+if len(paths)==0: 
+    print("Failed to find any photos.")
+    sys.exit()
 allimgfiles = [sorted(glob(path+'/*.np')) for path in paths]
 
 if not args.keepcolour:
     print("Removing colour cameras from set")
-    greyscale = [guesscamtypegetscore(imgfiles[0])<0.02 for imgfiles in allimgfiles]
+    greyscale = [alignment.helper.guesscamtypegetscore(imgfiles[0])<0.02 for imgfiles in allimgfiles]
     paths = [p for p,g in zip(paths,greyscale) if g]
     
 after = totalsecs(args.after)
@@ -159,6 +141,7 @@ else:
     
 #Save markers json data for photos so we can see how we did...
 for photo in al.photos:
+    print(photo.image_reference)
     allmarkers = []
     for obs in photo.observations:
         if obs.realobs:
