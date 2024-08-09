@@ -27,6 +27,7 @@ parser.add_argument('--keepcolour',required=False, default=False, help="Tool tri
 parser.add_argument('--xvalfoldspercamera',required=False,type=int,help='Number of cross-validation folds. Default: set to leave out one item from each camera in turn.', default=1)
 parser.add_argument('--xvalheldoutcount',required=False,type=int,help='How many items to hold out each time (default = 1)', default=1)
 parser.add_argument('--refreshcache',help='Whether to refresh the decoding cache',action="store_true",default=False)
+parser.add_argument('--hfov',type=float,help='Horizontal field of view in degrees (old lenses: 48.5 degrees; new lenses, default: 61.6 degrees)',default=61.6)
 parser.add_argument('--threshold',help='Threshold of score before adding to data',type=str,default=0)
 parser.add_argument('--sourcename',help='The name to give this source of labels (default:btretrodetect)',type=str,default='btretrodetect')
 #TODO: Might want to either; (a) overwrite, (b) skip, (c) append...
@@ -62,6 +63,19 @@ paths = glob(args.imgpath+'/'+args.calset+'/*/*')
 print("Searching %s" % (args.imgpath+'/'+args.calset+'/*/*'))
 print("Using these folders:")
 print(paths)
+
+#I need to find out where to move the old btalignment data folder to. So I find how many there are of the form btalignment231...
+maxcount = max([len(glob(path+'/'+args.sourcename+'*')) for path in paths])
+if maxcount>0:
+    for path in paths:
+        oldpath = path+'/btalignment'
+        newpath = path+'/btalignment%05d'%maxcount
+        try:
+            os.rename(oldpath,newpath)
+            print("Moving Old Alignment Results from %s to %s" % (oldpath,newpath))            
+        except FileNotFoundError:
+            pass
+
 if len(paths)==0: 
     print("Failed to find any photos.")
     sys.exit()
@@ -111,13 +125,16 @@ for imgi,imgfiles in enumerate(allimgfiles):
     intervals = []
     #loop through our images...
     for fn in imgfiles:
-        interval = alignment.helper.getinterval(totalsecs(fn),intervalstarts)
-        images.append(fn)
-        intervals.append(interval)
+        try:
+            interval = alignment.helper.getinterval(totalsecs(fn),intervalstarts)
+            images.append(fn)
+            intervals.append(interval)
+        except:
+            print("Warning: skipping image...[fn = %s]" % fn)
     allimages.append(images)
     allintervals.append(intervals)
 
-al = alignment.build_alignment_object(allimages,allintervals,get_image_method=get_image_method,timeout=500,usecache=not args.refreshcache)
+al = alignment.build_alignment_object(allimages,allintervals,get_image_method=get_image_method,timeout=500,usecache=not args.refreshcache,hfov=np.deg2rad(args.hfov))
 
 camids = []
 for imgfiles in allimgfiles:
