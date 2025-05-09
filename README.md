@@ -5,7 +5,7 @@ This computes the 3d pose of cameras and calibration boards.
 
 ## Installation
 ```
-pip install git+https://github.com/SheffieldMLtracking/pylibdmtx.git
+pip install git+https://github.com/SheffieldMLtracking/btalignment.git
 ```
 
 
