@@ -1,4 +1,4 @@
-from distutils.core import setup
+from setuptools import setup
 setup(
   name = 'btalignment',
   packages = ['btalignment'],
@@ -10,6 +10,6 @@ setup(
   download_url = 'https://github.com/SheffieldMLtracking/btalignment.git',
   keywords = ['3d','alignment','calibration','cameras','pose','position'],
   classifiers = [],
-  install_requires=['numpy'],
+  install_requires=['numpy','pylibdmtx @ git+https://github.com/SheffieldMLtracking/pylibdmtx'],
   scripts=['bin/btalignment'],
 )

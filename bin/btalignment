@@ -16,7 +16,7 @@ from btretrodetect import Retrodetect
 import json
 
 parser = argparse.ArgumentParser(description='Runs the alignment algorithm for the bee-track project. This can either run a cross validation check, or can generate an alignment configuration.')
-parser.add_argument('imgpath',type=str,help='Path to images (this needs to be to the session folder, e.g. 2024-06-20/CalibTest200624')
+parser.add_argument('imgpath',type=str,help='Path to images (this needs to be to the session folder, e.g. 2024-06-20/CalibTest200624)')
 parser.add_argument('--calset',required=False,type=str,help='Name of the calibration set (default = \'cal\')',default='cal')
 parser.add_argument('--xval',help='Setting this means the algorithm will just do a cross-validation check (and won\'t write to the config file.',action="store_true")
 parser.add_argument('--after',required=False,type=str,help='Only process images that were created after this time HH:MM:SS',default="00:00:00")
@@ -36,7 +36,7 @@ args = parser.parse_args()
 
 
 def totalsecs(st):
-    time_hms = [int(s) for s in re.findall('([0-9]{1,2})[:\+]([0-9]{2})[:\+]([0-9]{2})',st)[0]]
+    time_hms = [int(s) for s in re.findall('([0-9]{1,2})[:+]([0-9]{2})[:+]([0-9]{2})',st)[0]]
     return time_hms[0]*3600 + time_hms[1]*60 + time_hms[2]
 
 
@@ -63,6 +63,10 @@ paths = glob(args.imgpath+'/'+args.calset+'/*/*')
 print("Searching %s" % (args.imgpath+'/'+args.calset+'/*/*'))
 print("Using these folders:")
 print(paths)
+if len(paths)==0:
+    print("The path to images needs to be to the session folder, e.g. 2024-06-20/CalibTest200624), not a set.")
+    sys.exit()
+
 
 #I need to find out where to move the old btalignment data folder to. So I find how many there are of the form btalignment231...
 maxcount = max([len(glob(path+'/'+args.sourcename+'*')) for path in paths])
