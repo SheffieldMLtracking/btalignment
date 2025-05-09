@@ -10,6 +10,6 @@ setup(
   download_url = 'https://github.com/SheffieldMLtracking/btalignment.git',
   keywords = ['3d','alignment','calibration','cameras','pose','position'],
   classifiers = [],
-  install_requires=['numpy','pylibdmtx @ git+https://github.com/SheffieldMLtracking/pylibdmtx'],
+  install_requires=['numpy','pylibdmtx @ git+https://github.com/SheffieldMLtracking/pylibdmtx', 'alignment @ git+https://github.com/SheffieldMLtracking/alignment.git'],
   scripts=['bin/btalignment'],
 )
