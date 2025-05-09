@@ -1,9 +1,12 @@
 # btalignment
 This computes the 3d pose of cameras and calibration boards.
 
+! It uses a custom version of pylibdmtx to get the corners!
+
 ## Installation
 ```
-pip install git+https://github.com/SheffieldMLtracking/btalignment.git
+pip install pylibdmtx
+pip install git+https://github.com/SheffieldMLtracking/pylibdmtx.git
 ```
 
 
