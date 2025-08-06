@@ -12,12 +12,13 @@ import sys
 import os
 import json
 import pickle
-from btretrodetect import Retrodetect
+#from btretrodetect.retrodetect import Retrodetect ##<--not sure this is used?
 import json
 
 parser = argparse.ArgumentParser(description='Runs the alignment algorithm for the bee-track project. This can either run a cross validation check, or can generate an alignment configuration.')
 parser.add_argument('imgpath',type=str,help='Path to images (this needs to be to the session folder, e.g. 2024-06-20/CalibTest200624)')
 parser.add_argument('--calset',required=False,type=str,help='Name of the calibration set (default = \'cal\')',default='cal')
+parser.add_argument('--findonly',help='Just find the matrix codes',action="store_true",default=False)
 parser.add_argument('--xval',help='Setting this means the algorithm will just do a cross-validation check (and won\'t write to the config file.',action="store_true")
 parser.add_argument('--after',required=False,type=str,help='Only process images that were created after this time HH:MM:SS',default="00:00:00")
 parser.add_argument('--before',required=False,type=str,help='Only process images that were created before this time HH:MM:SS',default="23:59:59")
@@ -29,7 +30,7 @@ parser.add_argument('--xvalheldoutcount',required=False,type=int,help='How many 
 parser.add_argument('--refreshcache',help='Whether to refresh the decoding cache',action="store_true",default=False)
 parser.add_argument('--hfov',type=float,help='Horizontal field of view in degrees (old lenses: 48.5 degrees; new lenses, default: 61.6 degrees)',default=61.6)
 parser.add_argument('--threshold',help='Threshold of score before adding to data',type=str,default=0)
-parser.add_argument('--sourcename',help='The name to give this source of labels (default:btretrodetect)',type=str,default='btretrodetect')
+parser.add_argument('--sourcename',help='The name to give this source of labels (default:btalignment)',type=str,default='btalignment') #used to be btretrodetect
 #TODO: Might want to either; (a) overwrite, (b) skip, (c) append...
 #parser.add_argument('--',help='Stops it overwriting previous labels from this source (default behaviour is to do overwrite)',action="store_true") 
 args = parser.parse_args()
@@ -106,7 +107,7 @@ for path in paths:
         if before>=phototime>=after:
             fnlist.append(fn)
         lastphototime = phototime
-        if len(fnlist)>=args.maxnum: break
+        if len(fnlist)>=1000: break #args.maxnum: break #TODO Maybe need another threshold here...
     print('In %s found %d files, used %d of them.' % ('/'.join(path.split('/')[-3:]),len(fns),len(fnlist)))
     allimgfiles.append(fnlist)
 
@@ -138,7 +139,8 @@ for imgi,imgfiles in enumerate(allimgfiles):
     allimages.append(images)
     allintervals.append(intervals)
 
-al = alignment.build_alignment_object(allimages,allintervals,get_image_method=get_image_method,timeout=500,usecache=not args.refreshcache,hfov=np.deg2rad(args.hfov))
+print("Building alignment object")
+al = alignment.build_alignment_object(allimages,allintervals,get_image_method=get_image_method,timeout=1000,usecache=not args.refreshcache,hfov=np.deg2rad(args.hfov))
 
 camids = []
 for imgfiles in allimgfiles:
@@ -147,9 +149,26 @@ for imgfiles in allimgfiles:
 for cam,camid in zip(al.cameras,camids):
     cam.id = camid
 
+
 ###
 al.summary()
 ###
+#print("Saving summary data to a CSV file: summary.csv")
+#np.savetxt("summary.csv", summary_N_obs, delimiter=",")
+
+
+######
+summary_N_photos,summary_N_obs = al.compute_summary_table()
+best_indices = alignment.select_best_indices(summary_N_obs,args.maxnum)
+print(np.array(allimages).shape,np.array(allintervals).shape)
+allimages = list(np.array(allimages)[:,best_indices])
+allintervals = list(np.array(allintervals)[:,best_indices])
+al = alignment.build_alignment_object(allimages,allintervals,get_image_method=get_image_method,timeout=1000,usecache=not args.refreshcache,hfov=np.deg2rad(args.hfov))
+######
+
+al.summary()
+###
+
 
 if args.xval:
     print("\nRunning Cross-validation\n")
@@ -158,11 +177,13 @@ if args.xval:
 else:
     print("Running Alignment\n")
     al.reset_holdouts()
-    al.compute_orientation()
+    if not args.findonly:
+        al.compute_orientation()
     
 #Save markers json data for photos so we can see how we did...
+print("Saving marker json data")
 for photo in al.photos:
-    print(photo.image_reference)
+    #print(photo.image_reference)
     allmarkers = []
     for obs in photo.observations:
         if obs.realobs:
@@ -185,6 +206,7 @@ for photo in al.photos:
     json.dump(allmarkers,open(datafilename,'w'))
 
 #Save alignment data...
+print("Saving alignment data")
 for cam in al.cameras:
     datapath = '/'.join(cam.photos[0].image_reference.split('/')[:-1])+'/btalignment'
     
