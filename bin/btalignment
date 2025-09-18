@@ -42,8 +42,11 @@ def totalsecs(st):
 
 
 def get_image_method(fn):
+    if fn is None: return None
     data = np.load(fn,allow_pickle=True)
     #if not data['record']['flash']: return None
+    if data['img'] is None:
+        return None
     return data['img'].astype(float)
 
 
@@ -120,7 +123,9 @@ for imgfiles in allimgfiles:
         alltimes.append(totalsecs(fn))
 
 #get the interval start times
-intervalstarts = alignment.helper.getintervalstarts(alltimes,interval_length=1)
+intervalstarts = alignment.helper.getintervalstarts(alltimes,interval_length=1.0)
+
+
 
 allimages = []
 allintervals = []
@@ -136,8 +141,14 @@ for imgi,imgfiles in enumerate(allimgfiles):
             intervals.append(interval)
         except:
             print("Warning: skipping image...[fn = %s]" % fn)
+            images.append(None)
+            intervals.append(None)
+    if len(images)==0:
+        print("Warning no images in camera number %d" % imgi)
     allimages.append(images)
     allintervals.append(intervals)
+
+
 
 print("Building alignment object")
 al = alignment.build_alignment_object(allimages,allintervals,get_image_method=get_image_method,timeout=1000,usecache=not args.refreshcache,hfov=np.deg2rad(args.hfov))
@@ -159,10 +170,39 @@ al.summary()
 
 ######
 summary_N_photos,summary_N_obs = al.compute_summary_table()
-best_indices = alignment.select_best_indices(summary_N_obs,args.maxnum)
-print(np.array(allimages).shape,np.array(allintervals).shape)
-allimages = list(np.array(allimages)[:,best_indices])
-allintervals = list(np.array(allintervals)[:,best_indices])
+best_interval_indices = alignment.select_best_indices(summary_N_obs,args.maxnum)
+print(best_interval_indices)
+print("Lengths of each images set:")
+print([len(a) for a in allimages])
+print("Lengths of each intervals set:")
+print([len(a) for a in allintervals])
+print("---")
+for a in allintervals:
+    print(a)
+print("Best Indices...")
+print(best_interval_indices)    
+#print(np.array(allimages).shape,np.array(allintervals).shape)
+
+new_allintervals = []
+new_allimages = []
+for images, intervals in zip(allimages,allintervals):
+    new_allintervals.append([])
+    new_allimages.append([])
+    for best in best_interval_indices:
+        try:
+            idx = intervals.index(best)
+            new_allimages[-1].append(images[idx])
+            new_allintervals[-1].append(best)
+        except ValueError:
+            #this index isn't available for this camera (guess that a photo wasn't taken at this time for some reason).
+            pass
+print("OLD INTERVALS")
+print(allintervals)
+print("--------")     
+print("NEW INTERVALS")       
+print(new_allintervals)
+allimages = new_allimages #list(np.array(allimages)[:,best_indices])
+allintervals = new_allintervals #list(np.array(allintervals)[:,best_indices])
 al = alignment.build_alignment_object(allimages,allintervals,get_image_method=get_image_method,timeout=1000,usecache=not args.refreshcache,hfov=np.deg2rad(args.hfov))
 ######
 
