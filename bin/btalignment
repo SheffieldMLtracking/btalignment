@@ -19,18 +19,21 @@ parser = argparse.ArgumentParser(description='Runs the alignment algorithm for t
 parser.add_argument('imgpath',type=str,help='Path to images (this needs to be to the session folder, e.g. 2024-06-20/CalibTest200624)')
 parser.add_argument('--calset',required=False,type=str,help='Name of the calibration set (default = \'cal\')',default='cal')
 parser.add_argument('--findonly',help='Just find the matrix codes',action="store_true",default=False)
+parser.add_argument('--boxes', nargs='+', help='Give a list of box ids to restrict analysis to, e.g. --boxes 1045 1046 1047',default=None)
 parser.add_argument('--xval',help='Setting this means the algorithm will just do a cross-validation check (and won\'t write to the config file.',action="store_true")
 parser.add_argument('--after',required=False,type=str,help='Only process images that were created after this time HH:MM:SS',default="00:00:00")
 parser.add_argument('--before',required=False,type=str,help='Only process images that were created before this time HH:MM:SS',default="23:59:59")
 parser.add_argument('--maxnum',required=False,type=int,help='Maximum number of photos to include per camera (default = 6)', default=6)
 parser.add_argument('--keepnoflashpair',required=False, default=False, help="Tool ignores second photo in flash/no-flash pair. This option makes the tool use both.",action="store_true")
 parser.add_argument('--keepcolour',required=False, default=False, help="Tool tries to identify the cameras as colour/greyscale and only keeps greyscale. Setting this uses all the cameras",action="store_true")
-parser.add_argument('--xvalfoldspercamera',required=False,type=int,help='Number of cross-validation folds. Default: set to leave out one item from each camera in turn.', default=1)
+parser.add_argument('--xvalfolds',required=False,type=int,help='Number of cross-validation folds. Default: number of cameras (so set to leave out one item from each camera in turn).', default=None)
 parser.add_argument('--xvalheldoutcount',required=False,type=int,help='How many items to hold out each time (default = 1)', default=1)
 parser.add_argument('--refreshcache',help='Whether to refresh the decoding cache',action="store_true",default=False)
 parser.add_argument('--hfov',type=float,help='Horizontal field of view in degrees (old lenses: 48.5 degrees; new lenses, default: 61.6 degrees)',default=61.6)
 parser.add_argument('--threshold',help='Threshold of score before adding to data',type=str,default=0)
+parser.add_argument('--gtol',help='When to terminate optimisation (gradient norm must be less than gtol before successful termination). Default = 0.00001',default=0.00001,type=float)
 parser.add_argument('--sourcename',help='The name to give this source of labels (default:btalignment)',type=str,default='btalignment') #used to be btretrodetect
+parser.add_argument('--restarts',help='The number of restarts the optimiser should try (default:1)',type=int,default=1)
 #TODO: Might want to either; (a) overwrite, (b) skip, (c) append...
 #parser.add_argument('--',help='Stops it overwriting previous labels from this source (default behaviour is to do overwrite)',action="store_true") 
 args = parser.parse_args()
@@ -66,23 +69,22 @@ def make_markers_list(photo,cxs,cys,markerlabel):
 paths = glob(args.imgpath+'/'+args.calset+'/*/*')
 print("Searching %s" % (args.imgpath+'/'+args.calset+'/*/*'))
 print("Using these folders:")
+
+#Allows user to select subset of boxes...
+if args.boxes is not None:
+    newpaths = []
+    for p in paths:
+        for box in args.boxes:
+            if box in p:
+                newpaths.append(p)
+                break
+    paths = newpaths
+                
 print(paths)
 if len(paths)==0:
     print("The path to images needs to be to the session folder, e.g. 2024-06-20/CalibTest200624), not a set.")
     sys.exit()
 
-
-#I need to find out where to move the old btalignment data folder to. So I find how many there are of the form btalignment231...
-maxcount = max([len(glob(path+'/'+args.sourcename+'*')) for path in paths])
-if maxcount>0:
-    for path in paths:
-        oldpath = path+'/btalignment'
-        newpath = path+'/btalignment%05d'%maxcount
-        try:
-            os.rename(oldpath,newpath)
-            print("Moving Old Alignment Results from %s to %s" % (oldpath,newpath))            
-        except FileNotFoundError:
-            pass
 
 if len(paths)==0: 
     print("Failed to find any photos.")
@@ -176,9 +178,9 @@ print("Lengths of each images set:")
 print([len(a) for a in allimages])
 print("Lengths of each intervals set:")
 print([len(a) for a in allintervals])
-print("---")
-for a in allintervals:
-    print(a)
+#print("---")
+#for a in allintervals:
+#    print(a)
 print("Best Indices...")
 print(best_interval_indices)    
 #print(np.array(allimages).shape,np.array(allintervals).shape)
@@ -196,23 +198,27 @@ for images, intervals in zip(allimages,allintervals):
         except ValueError:
             #this index isn't available for this camera (guess that a photo wasn't taken at this time for some reason).
             pass
-print("OLD INTERVALS")
-print(allintervals)
-print("--------")     
-print("NEW INTERVALS")       
-print(new_allintervals)
+#print("OLD INTERVALS")
+#print(allintervals)
+#print("--------")     
+#print("NEW INTERVALS")       
+#print(new_allintervals)
 allimages = new_allimages #list(np.array(allimages)[:,best_indices])
 allintervals = new_allintervals #list(np.array(allintervals)[:,best_indices])
-al = alignment.build_alignment_object(allimages,allintervals,get_image_method=get_image_method,timeout=1000,usecache=not args.refreshcache,hfov=np.deg2rad(args.hfov))
+al = alignment.build_alignment_object(allimages,allintervals,get_image_method=get_image_method,timeout=1000,usecache=not args.refreshcache,hfov=np.deg2rad(args.hfov))#,gtol=args.gtol)
 ######
 
 al.summary()
 ###
-
+al.num_restarts = args.restarts
 
 if args.xval:
     print("\nRunning Cross-validation\n")
-    al.run_cross_validation(args.xvalfoldspercamera*len(al.cameras),args.xvalheldoutcount)
+    if args.xvalfolds is None:
+        xvalfolds = len(al.cameras)
+    else:
+        xvalfolds = args.xvalfolds
+    al.run_cross_validation(xvalfolds,args.xvalheldoutcount)
     al.print_crossvalidation_summary()
 else:
     print("Running Alignment\n")
@@ -220,10 +226,28 @@ else:
     if not args.findonly:
         al.compute_orientation()
     
+    
+#Backup old alignment....
+#I need to find out where to move the old btalignment data folder to. So I find how many there are of the form btalignment231...
+maxcount = max([len(glob(path+'/'+args.sourcename+'*')) for path in paths])
+if maxcount>0:
+    for path in paths:
+        oldpath = path+'/btalignment'
+        newpath = path+'/btalignment%05d'%maxcount
+        try:
+            os.rename(oldpath,newpath)
+            print("Moving Old Alignment Results from %s to %s" % (oldpath,newpath))            
+        except FileNotFoundError:
+            pass
+               
+#and save new alignment... 
 #Save markers json data for photos so we can see how we did...
 print("Saving marker json data")
 for photo in al.photos:
-    #print(photo.image_reference)
+    splitpath = photo.image_reference.split('/')
+    datapath = '/'.join(splitpath[:-1])+'/'+args.sourcename
+    datafilename = datapath + '/' + splitpath[-1][:-2]+'json'
+    
     allmarkers = []
     for obs in photo.observations:
         if obs.realobs:
@@ -233,10 +257,8 @@ for photo in al.photos:
 
         if hasattr(obs,'predicted_coords'):
             allmarkers.extend(make_markers_list(photo,obs.predicted_coords[:,0],obs.predicted_coords[:,1],'xval'))
+            print("XVAL result added to: %s" % datafilename)
 
-    splitpath = photo.image_reference.split('/')
-    datapath = '/'.join(splitpath[:-1])+'/'+args.sourcename
-    datafilename = datapath + '/' + splitpath[-1][:-2]+'json'
         
     try:
         os.mkdir(datapath)
@@ -245,14 +267,19 @@ for photo in al.photos:
         
     json.dump(allmarkers,open(datafilename,'w'))
 
+
 #Save alignment data...
-print("Saving alignment data")
-for cam in al.cameras:
-    datapath = '/'.join(cam.photos[0].image_reference.split('/')[:-1])+'/btalignment'
-    
-    camjson = {'loc':cam.loc.tolist(),'orientation':cam.orientation.tolist(),'hfov':cam.hfov,'vfov':cam.vfov,'res':cam.res}
-    try:
-        os.mkdir(datapath)
-    except FileExistsError:
-        pass
-    json.dump(camjson,open(datapath+'/alignment.json','w'))
+#if args.xval:
+#    print("Not saving aligment data, as only ran cross-validation run")
+#else:
+if True: #we'll save it anyway!!!
+    print("Saving alignment data")
+    for cam in al.cameras:
+        datapath = '/'.join(cam.photos[0].image_reference.split('/')[:-1])+'/btalignment'
+        
+        camjson = {'loc':cam.loc.tolist(),'orientation':cam.orientation.tolist(),'hfov':cam.hfov,'vfov':cam.vfov,'res':cam.res}
+        try:
+            os.mkdir(datapath)
+        except FileExistsError:
+            pass
+        json.dump(camjson,open(datapath+'/alignment.json','w'))
